@@ -1,0 +1,18 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.env
+db.sqlite3
+
+# Node / React
+node_modules/
+dist/
+build/
+.env.local
+
+# Éditeurs / OS
+.vscode/
+.idea/
+.DS_Store
