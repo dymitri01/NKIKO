@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Tiers
+from .models import CompteUtilisateur, Tiers
 
 
 class TiersSerializer(serializers.ModelSerializer):
@@ -20,3 +20,11 @@ class TiersSerializer(serializers.ModelSerializer):
             "numero_fiscal",
             "statut",
         ]
+
+
+class CompteUtilisateurSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.username", read_only=True)
+
+    class Meta:
+        model = CompteUtilisateur
+        fields = ["id", "user", "username", "role"]
