@@ -51,3 +51,16 @@ class Tiers(models.Model):
 
     def __str__(self):
         return f"{self.nom} ({self.get_categorie_display()})"
+
+
+class Marchandise(models.Model):
+    nom = models.CharField(max_length=100, unique=True)
+    code = models.CharField(max_length=20, unique=True)
+
+    class Meta:
+        verbose_name = "Marchandise"
+        verbose_name_plural = "Marchandises"
+        ordering = ["nom"]
+
+    def __str__(self):
+        return self.nom
