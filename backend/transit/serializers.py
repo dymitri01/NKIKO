@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import CompteUtilisateur, Tiers
+from .models import CompteUtilisateur, Marchandise, Tiers
 
 
 class TiersSerializer(serializers.ModelSerializer):
@@ -28,3 +28,9 @@ class CompteUtilisateurSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompteUtilisateur
         fields = ["id", "user", "username", "role"]
+
+
+class MarchandiseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Marchandise
+        fields = ["id", "nom", "code"]

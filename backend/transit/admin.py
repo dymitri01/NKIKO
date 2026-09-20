@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CompteUtilisateur, Tiers
+from .models import CompteUtilisateur, Marchandise, Tiers
 
 
 @admin.register(Tiers)
@@ -15,3 +15,9 @@ class CompteUtilisateurAdmin(admin.ModelAdmin):
     list_display = ("user", "role")
     list_filter = ("role",)
     search_fields = ("user__username", "user__email")
+
+
+@admin.register(Marchandise)
+class MarchandiseAdmin(admin.ModelAdmin):
+    list_display = ("nom", "code")
+    search_fields = ("nom", "code")
