@@ -1,4 +1,25 @@
+from django.conf import settings
 from django.db import models
+
+
+class CompteUtilisateur(models.Model):
+    class Role(models.TextChoices):
+        ADMINISTRATEUR = "ADMINISTRATEUR", "Administrateur"
+        AGENT_TRANSIT = "AGENT_TRANSIT", "Agent de transit"
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="compte_utilisateur",
+    )
+    role = models.CharField(max_length=20, choices=Role.choices)
+
+    class Meta:
+        verbose_name = "Compte utilisateur"
+        verbose_name_plural = "Comptes utilisateurs"
+
+    def __str__(self):
+        return f"{self.user.username} ({self.get_role_display()})"
 
 
 class Tiers(models.Model):
