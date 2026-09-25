@@ -1,7 +1,12 @@
 from rest_framework import viewsets
 
-from .models import CompteUtilisateur, Marchandise, Tiers
-from .serializers import CompteUtilisateurSerializer, MarchandiseSerializer, TiersSerializer
+from .models import CompteUtilisateur, Marchandise, MoyenTransport, Tiers
+from .serializers import (
+    CompteUtilisateurSerializer,
+    MarchandiseSerializer,
+    MoyenTransportSerializer,
+    TiersSerializer,
+)
 
 
 class TiersViewSet(viewsets.ModelViewSet):
@@ -17,3 +22,8 @@ class CompteUtilisateurViewSet(viewsets.ModelViewSet):
 class MarchandiseViewSet(viewsets.ModelViewSet):
     queryset = Marchandise.objects.all()
     serializer_class = MarchandiseSerializer
+
+
+class MoyenTransportViewSet(viewsets.ModelViewSet):
+    queryset = MoyenTransport.objects.all()
+    serializer_class = MoyenTransportSerializer
