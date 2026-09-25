@@ -64,3 +64,26 @@ class Marchandise(models.Model):
 
     def __str__(self):
         return self.nom
+
+
+class MoyenTransport(models.Model):
+    class Type(models.TextChoices):
+        WAGON = "WAGON", "Wagon"
+        CONTENEUR = "CONTENEUR", "Conteneur"
+
+    class Statut(models.TextChoices):
+        DISPONIBLE = "DISPONIBLE", "Disponible"
+        EN_UTILISATION = "EN_UTILISATION", "En utilisation"
+
+    type = models.CharField(max_length=20, choices=Type.choices)
+    numero = models.CharField(max_length=50, unique=True)
+    volume = models.DecimalField(max_digits=10, decimal_places=2)
+    statut = models.CharField(max_length=20, choices=Statut.choices, default=Statut.DISPONIBLE)
+
+    class Meta:
+        verbose_name = "Moyen de transport"
+        verbose_name_plural = "Moyens de transport"
+        ordering = ["numero"]
+
+    def __str__(self):
+        return f"{self.numero} ({self.get_type_display()})"
