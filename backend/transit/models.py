@@ -1,11 +1,13 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class CompteUtilisateur(models.Model):
     class Role(models.TextChoices):
         ADMINISTRATEUR = "ADMINISTRATEUR", "Administrateur"
         AGENT_TRANSIT = "AGENT_TRANSIT", "Agent de transit"
+        CHEF_DEPOT = "CHEF_DEPOT", "Chef de dépôt"
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -87,3 +89,60 @@ class MoyenTransport(models.Model):
 
     def __str__(self):
         return f"{self.numero} ({self.get_type_display()})"
+
+
+class Contrat(models.Model):
+    class Type(models.TextChoices):
+        D15 = "D15", "D15"
+        TITRE_PROVENANCE = "TITRE_PROVENANCE", "Titre de provenance"
+
+    class Statut(models.TextChoices):
+        EN_ATTENTE = "EN_ATTENTE", "En attente"
+        ACTIF = "ACTIF", "Actif"
+        EPUISE = "EPUISE", "Épuisé"
+
+    numero_contrat = models.CharField(max_length=50, unique=True, blank=True)
+    client = models.ForeignKey(
+        Tiers,
+        on_delete=models.PROTECT,
+        related_name="contrats",
+        limit_choices_to={"categorie": Tiers.Categorie.CLIENT},
+    )
+    type = models.CharField(max_length=20, choices=Type.choices)
+    provenance = models.CharField(max_length=100)
+    marchandise = models.ForeignKey(
+        Marchandise,
+        on_delete=models.PROTECT,
+        related_name="contrats",
+    )
+    volume_total_autorise = models.DecimalField(max_digits=10, decimal_places=2)
+    volume_total_restant = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    statut = models.CharField(max_length=20, choices=Statut.choices, default=Statut.EN_ATTENTE)
+    date_creation = models.DateField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Contrat"
+        verbose_name_plural = "Contrats"
+        ordering = ["-id"]
+
+    def _generer_numero_contrat(self):
+        prefixe_client = self.client.nom[:3].upper()
+        lettre_type = "D" if self.type == self.Type.D15 else "T"
+        aujourdhui = timezone.localdate()
+        date_partie = aujourdhui.strftime("%y%m%d")
+        nb_contrats_du_jour = Contrat.objects.filter(date_creation=aujourdhui).count()
+        serie = f"{nb_contrats_du_jour + 1:04d}"
+        return f"{prefixe_client}{lettre_type}-{date_partie}-{serie}"
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            if self.volume_total_restant is None:
+                self.volume_total_restant = self.volume_total_autorise
+            if not self.numero_contrat:
+                self.numero_contrat = self._generer_numero_contrat()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.numero_contrat
