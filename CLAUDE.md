@@ -42,9 +42,43 @@ Champs : nom, code.
 
 ### Contrat
 Créé via un formulaire dans l'application.
-Champs : numero_contrat, type, provenance, marchandise (FK vers
-Marchandise), volume_total_autorise, volume_total_restant, statut.
+Champs : numero_contrat (auto-généré, voir ci-dessous), client (FK Tiers,
+catégorie Client uniquement), type (D15 / Titre de provenance — liste
+fermée), provenance, marchandise (FK vers Marchandise),
+volume_total_autorise, volume_total_restant (initialisé automatiquement à
+volume_total_autorise à la création), statut, date_creation (auto).
 **Ne contient PAS de prix ni d'informations commerciales/formelles.**
+
+**Numéro de contrat auto-généré** (jamais saisi à la main) : concaténation
+des 3 premières lettres du nom du client (majuscules) + lettre du type
+(`D` pour D15, `T` pour Titre de provenance) + `-` + date du jour
+(AAMMJJ) + `-` + numéro de série sur 4 chiffres, remis à zéro chaque jour.
+Exemple : `SOCD-260929-0001`, puis `SOCT-260929-0002` pour le 2e contrat
+créé le même jour.
+
+**Statut et workflow de validation** (confirmé par l'utilisateur) :
+- `En attente` (statut par défaut à la création)
+- `Actif` (validé par le Chef de dépôt — seul un contrat `En attente` peut
+  être validé)
+- `Épuisé` (volume_total_restant atteint 0)
+
+Un **Chef de dépôt** (nouveau rôle sur `CompteUtilisateur`, voir plus bas)
+valide ou rejette les contrats `En attente` depuis un futur écran/onglet
+**Notifications** (pas encore maquetté sur Stitch — à ajouter au menu
+latéral) : il voit le détail du contrat et clique "Valider" (→ `Actif`) ou
+"Rejeter" (reste `En attente`, l'agent doit corriger et resoumettre).
+
+Règle de reverrouillage : **toute modification d'un contrat `Actif`** (par
+n'importe quel rôle, y compris Administrateur/Chef de dépôt) le fait
+automatiquement repasser à `En attente` — il doit être revalidé avant de
+pouvoir être réutilisé. Un contrat déjà consommé (volume_total_restant ≠
+volume_total_autorise, preuve qu'au moins une réception l'a déjà décompté)
+ne peut en revanche plus être modifié du tout, quel que soit son statut.
+
+Lors de la création d'une **Réception** (LettreVoiture/Colis, à venir), le
+sélecteur de contrat ne doit proposer QUE les contrats au statut `Actif`
+(pas `En attente`, pas `Épuisé`) — à implémenter au moment de coder cette
+logique.
 
 ### LettreVoiture
 Représente uniquement **l'événement de transport** (un camion qui arrive) —
@@ -95,9 +129,16 @@ Champs : type (Wagon/Conteneur), numero (immatriculation, sert
 d'identifiant), volume, statut.
 
 ### CompteUtilisateur
-Comptes internes (rôles : Administrateur / Agent de transit) — bien
-distincts des Tiers (Client/Transporteur/Chargeur) qui sont des entités
-métier, pas des comptes applicatifs avec identifiants.
+Comptes internes (rôles : Administrateur / Agent de transit / **Chef de
+dépôt**) — bien distincts des Tiers (Client/Transporteur/Chargeur) qui
+sont des entités métier, pas des comptes applicatifs avec identifiants.
+Implémenté via un `OneToOneField` vers le `User` Django natif (pas de
+remplacement d'`AUTH_USER_MODEL`, car les migrations auth étaient déjà
+appliquées au moment de la décision) plutôt qu'un champ `role` ajouté au
+`User` directement.
+
+Le **Chef de dépôt** est le rôle qui valide/rejette les contrats en
+attente (voir section Contrat ci-dessus).
 
 ### Validation essence / contrat (confirmée par l'utilisateur)
 L'application DOIT contrôler que l'essence saisie sur une bille
@@ -133,6 +174,11 @@ interface **entièrement en français**, menu latéral identique et dans le
 même ordre sur tous les écrans (Tableau de bord, Contrats, Réception,
 Expéditions, Stock, Tiers, Comptes utilisateurs, Rapports).
 
+⚠️ **Nouvel écran à ajouter au menu (pas encore maquetté)** : onglet
+**Notifications**, visible surtout pour le Chef de dépôt — liste des
+contrats `En attente` avec le détail et les boutons Valider/Rejeter (voir
+section Contrat).
+
 Pattern UX convenu pour l'écran Réception : liste/historique en premier,
 panneau latéral (drawer, ~70% largeur, pas un modal centré) pour le
 formulaire, validation ferme le panneau sans changement de page, bouton par
@@ -149,19 +195,28 @@ GET /api/receptions/{id}/bordereau/.
 - Convention de commits : feat:, fix:, chore:, docs:, refactor:, test:
 - Repo : github.com/dymitri01/NKIKO
 
+## Workflow Git — précision importante
+Une branche = un modèle (convention confirmée) : chaque modèle de la liste
+ci-dessous a sa propre branche `feature/xxx`, sa propre PR vers `develop`,
+mergée en "Squash and merge" puis branche supprimée, avant de démarrer le
+modèle suivant depuis `develop` à jour.
+
 ## État d'avancement actuel
 - ✅ Repo initialisé, branches main/develop en place, protection de main
   configurée
-- ✅ Sur la branche feature/setup-backend-django : projet Django créé
-  (module config, app transit), djangorestframework + django-cors-headers +
-  psycopg2-binary + python-decouple installés et configurés dans
-  settings.py, requirements.txt généré
-- ⏳ PR de feature/setup-backend-django vers develop pas encore mergée
-- ⏳ **Prochaine étape immédiate** : créer le modèle Tiers dans
-  transit/models.py (modèle → migration → admin.py → serializer → viewset
-  → urls.py), pour poser le pattern avant d'attaquer les modèles plus
-  denses (Contrat, LettreVoiture, Colis avec la logique de décompte).
-- Ordre de développement prévu : Tiers → CompteUtilisateur → Marchandise →
-  MoyenTransport → Contrat → LettreVoiture + Colis (le plus dense, avec la
-  logique de décompte par contrat) → Chargement → génération PDF des
-  bordereaux.
+- ✅ Setup Django + DRF + CORS, modèles **Tiers**, **CompteUtilisateur**,
+  **Marchandise**, **MoyenTransport** : chacun avec son cycle complet
+  (modèle → migration → admin.py → serializer → viewset → urls.py), PR
+  mergée sur `develop`
+- ✅ Modèle **Contrat** avec numéro auto-généré, statut/workflow de
+  validation (En attente/Actif/Épuisé, actions valider/rejeter), verrou de
+  modification — testé, pas encore committé/mergé à ce stade
+- ⏳ **Prochaine étape** : modèle `LettreVoiture` + `Colis` (le plus dense —
+  logique de décompte par contrat, validation essence/contrat), puis
+  `Chargement`, puis génération PDF des bordereaux
+- ⏳ Écran/onglet Notifications (validation des contrats par le Chef de
+  dépôt) à ajouter aux maquettes Stitch
+- ⏳ Verrouillage API (`IsAuthenticated` + JWT + permissions par rôle) —
+  volontairement différé jusqu'à ce que les rôles (CompteUtilisateur)
+  soient en place ; à faire maintenant que c'est le cas, mais pas encore
+  fait

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CompteUtilisateur, Marchandise, MoyenTransport, Tiers
+from .models import CompteUtilisateur, Contrat, Marchandise, MoyenTransport, Tiers
 
 
 @admin.register(Tiers)
@@ -28,3 +28,19 @@ class MoyenTransportAdmin(admin.ModelAdmin):
     list_display = ("numero", "type", "volume", "statut")
     list_filter = ("type", "statut")
     search_fields = ("numero",)
+
+
+@admin.register(Contrat)
+class ContratAdmin(admin.ModelAdmin):
+    list_display = (
+        "numero_contrat",
+        "client",
+        "marchandise",
+        "provenance",
+        "volume_total_autorise",
+        "volume_total_restant",
+        "statut",
+    )
+    list_filter = ("statut", "type", "marchandise")
+    search_fields = ("numero_contrat", "provenance", "client__nom")
+    readonly_fields = ("numero_contrat", "date_creation")
