@@ -1,6 +1,11 @@
+from decimal import ROUND_HALF_UP, Decimal
+
 from django.conf import settings
-from django.db import models
+from django.core.files.base import ContentFile
+from django.db import models, transaction
 from django.utils import timezone
+
+PI = Decimal("3.14159265358979")
 
 
 class CompteUtilisateur(models.Model):
@@ -146,3 +151,164 @@ class Contrat(models.Model):
 
     def __str__(self):
         return self.numero_contrat
+
+
+class LettreVoiture(models.Model):
+    class Statut(models.TextChoices):
+        EN_ATTENTE = "EN_ATTENTE", "En attente"
+        CLOTURE = "CLOTURE", "Clôturé"
+        EN_ATTENTE_APPROBATION = "EN_ATTENTE_APPROBATION", "En attente d'approbation"
+
+    numero_lettre_voiture = models.CharField(max_length=50, unique=True, blank=True)
+    numero_bl = models.CharField(max_length=50)
+    statut = models.CharField(max_length=25, choices=Statut.choices, default=Statut.EN_ATTENTE)
+    bordereau = models.FileField(upload_to="bordereaux/", blank=True, null=True)
+    date_cloture = models.DateTimeField(blank=True, null=True)
+    client = models.ForeignKey(
+        Tiers,
+        on_delete=models.PROTECT,
+        related_name="lettres_voiture_client",
+        limit_choices_to={"categorie": Tiers.Categorie.CLIENT},
+    )
+    trajet = models.CharField(max_length=255)
+    date_arrivee = models.DateField()
+    chargeur = models.ForeignKey(
+        Tiers,
+        on_delete=models.PROTECT,
+        related_name="lettres_voiture_chargeur",
+        limit_choices_to={"categorie": Tiers.Categorie.CHARGEUR},
+    )
+    transporteur = models.ForeignKey(
+        Tiers,
+        on_delete=models.PROTECT,
+        related_name="lettres_voiture_transporteur",
+        limit_choices_to={"categorie": Tiers.Categorie.TRANSPORTEUR},
+    )
+    chauffeur = models.CharField(max_length=255)
+    immatriculation_camion = models.CharField(max_length=50)
+    pays_provenance = models.CharField(max_length=100)
+
+    class Meta:
+        verbose_name = "Lettre de voiture"
+        verbose_name_plural = "Lettres de voiture"
+        ordering = ["-id"]
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and not self.numero_lettre_voiture:
+            prefixe_client = self.client.nom[:3].upper()
+            self.numero_lettre_voiture = f"{prefixe_client}{self.numero_bl}"
+        super().save(*args, **kwargs)
+
+    def cloturer(self):
+        from .pdf import generer_bordereau_pdf
+
+        if self.statut != self.Statut.EN_ATTENTE:
+            raise ValueError("Seule une réception en attente peut être clôturée.")
+
+        colis_list = list(self.colis.select_related("contrat"))
+        if not colis_list:
+            raise ValueError("Impossible de clôturer une réception sans aucune bille.")
+
+        subtotaux = {}
+        for colis in colis_list:
+            subtotaux[colis.contrat_id] = (
+                subtotaux.get(colis.contrat_id, Decimal("0")) + colis.volume
+            )
+
+        contrats = {c.id: c for c in Contrat.objects.filter(id__in=subtotaux.keys())}
+        depassements = []
+        for contrat_id, volume_recu in subtotaux.items():
+            contrat = contrats[contrat_id]
+            if volume_recu > contrat.volume_total_restant:
+                depassements.append(
+                    f"Le contrat {contrat.numero_contrat} n'a que "
+                    f"{contrat.volume_total_restant} restant, mais {volume_recu} "
+                    f"ont été reçus."
+                )
+        if depassements:
+            raise ValueError(" ".join(depassements))
+
+        with transaction.atomic():
+            for contrat_id, volume_recu in subtotaux.items():
+                contrat = contrats[contrat_id]
+                contrat.volume_total_restant -= volume_recu
+                if contrat.volume_total_restant <= 0:
+                    contrat.volume_total_restant = Decimal("0")
+                    contrat.statut = Contrat.Statut.EPUISE
+                contrat.save(update_fields=["volume_total_restant", "statut"])
+
+            pdf_bytes = generer_bordereau_pdf(self)
+            self.bordereau.save(
+                f"{self.numero_lettre_voiture}.pdf", ContentFile(pdf_bytes), save=False
+            )
+            self.statut = self.Statut.CLOTURE
+            self.date_cloture = timezone.now()
+            self.save(update_fields=["statut", "date_cloture", "bordereau"])
+
+    def rouvrir(self):
+        if self.statut != self.Statut.EN_ATTENTE_APPROBATION:
+            raise ValueError(
+                "Seule une réception en attente d'approbation peut être rouverte."
+            )
+
+        colis_list = list(self.colis.select_related("contrat"))
+        subtotaux = {}
+        for colis in colis_list:
+            subtotaux[colis.contrat_id] = (
+                subtotaux.get(colis.contrat_id, Decimal("0")) + colis.volume
+            )
+        contrats = {c.id: c for c in Contrat.objects.filter(id__in=subtotaux.keys())}
+
+        with transaction.atomic():
+            for contrat_id, volume_a_restituer in subtotaux.items():
+                contrat = contrats[contrat_id]
+                contrat.volume_total_restant += volume_a_restituer
+                if contrat.statut == Contrat.Statut.EPUISE and contrat.volume_total_restant > 0:
+                    contrat.statut = Contrat.Statut.ACTIF
+                contrat.save(update_fields=["volume_total_restant", "statut"])
+
+            self.statut = self.Statut.EN_ATTENTE
+            self.save(update_fields=["statut"])
+
+    def __str__(self):
+        return self.numero_lettre_voiture
+
+
+class Colis(models.Model):
+    lettre_voiture = models.ForeignKey(
+        LettreVoiture,
+        on_delete=models.CASCADE,
+        related_name="colis",
+    )
+    contrat = models.ForeignKey(
+        Contrat,
+        on_delete=models.PROTECT,
+        related_name="colis",
+        limit_choices_to={"statut": Contrat.Statut.ACTIF},
+    )
+    marchandise = models.ForeignKey(
+        Marchandise,
+        on_delete=models.PROTECT,
+        related_name="colis",
+    )
+    numero_bille = models.CharField(max_length=50)
+    longueur = models.DecimalField(max_digits=6, decimal_places=2, help_text="En mètres")
+    diametre = models.DecimalField(max_digits=6, decimal_places=2, help_text="En mètres")
+    volume = models.DecimalField(
+        max_digits=10, decimal_places=2, blank=True, help_text="En m³, calculé automatiquement"
+    )
+    class Meta:
+        verbose_name = "Colis"
+        verbose_name_plural = "Colis"
+        ordering = ["-id"]
+
+    def save(self, *args, **kwargs):
+        self.marchandise = self.contrat.marchandise
+        rayon = self.diametre / 2
+        self.volume = (PI * rayon**2 * self.longueur).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.numero_bille
