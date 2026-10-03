@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 .env
 db.sqlite3
+backend/media/
 
 # Node / React
 node_modules/

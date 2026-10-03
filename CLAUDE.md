@@ -84,17 +84,71 @@ logique.
 Représente uniquement **l'événement de transport** (un camion qui arrive) —
 n'est PAS liée directement à un Contrat (voir règle métier critique
 ci-dessous).
-Champs : client (FK Tiers), trajet, date_arrivee, chargeur (FK Tiers),
-transporteur (FK Tiers), chauffeur, immatriculation_camion, pays_provenance.
-À la validation, génère un **bordereau de réception**.
+Champs : numero_lettre_voiture (auto-généré, voir ci-dessous), numero_bl
+(numéro du bordereau de livraison papier, saisi par l'agent), client (FK
+Tiers, catégorie Client), trajet, date_arrivee, chargeur (FK Tiers,
+catégorie Chargeur), transporteur (FK Tiers, catégorie Transporteur),
+chauffeur, immatriculation_camion, pays_provenance.
+
+**Numéro de lettre de voiture auto-généré** (confirmé par l'utilisateur) :
+concaténation directe (sans séparateur) des 3 premières lettres du nom du
+client (majuscules) + numero_bl. Exemple : client "Société..." + BL
+"2026-00458" → `SOC2026-00458`.
+
+**Statut/clôture — IMPLÉMENTÉ** (avancé plus tôt que prévu dans la feuille
+de route initiale, sur demande de l'utilisateur) : champs `statut`
+(`En attente` par défaut / `Clôturé`), `bordereau` (fichier PDF, stocké
+via `MEDIA_ROOT/bordereaux/`), `date_cloture`.
+
+Méthode `LettreVoiture.cloturer()` (logique métier sur le modèle) :
+1. Regroupe les Colis existants par Contrat, somme les volumes
+2. Si un seul contrat recevrait plus que son `volume_total_restant`,
+   **bloque toute la clôture** (aucun changement appliqué, message
+   listant chaque dépassement) — décision confirmée par l'utilisateur
+3. Sinon, décrémente chaque Contrat concerné (statut → `Épuisé` si le
+   restant atteint 0), génère le PDF (ReportLab), sauvegarde le fichier,
+   passe la réception à `Clôturé` — le tout dans une transaction atomique
+   (`transaction.atomic()`) pour éviter un décompte partiel en cas d'erreur
+
+Endpoints : `POST /api/lettres-voiture/{id}/cloturer/` (déclenche tout
+ça), `GET /api/lettres-voiture/{id}/bordereau/` (télécharge le PDF déjà
+généré). Pas de validation Chef de dépôt pour les réceptions
+(contrairement aux Contrats) — l'agent clôture lui-même.
+
+**Modification/suppression possible UNIQUEMENT quand statut = `En attente`**
+(décision confirmée). Une réception `Clôturé`e n'est donc pas bloquée
+définitivement — cycle de ré-ouverture avec approbation du Chef de dépôt,
+même esprit que la validation des Contrats :
+- `POST /{id}/demander_modification/` : `Clôturé` → `En attente
+  d'approbation` (déclenché par le bouton "Modifier" côté agent)
+- `POST /{id}/autoriser_modification/` (Chef de dépôt) : **restitue
+  d'abord le volume déjà décompté sur chaque Contrat concerné** (inverse
+  exact de la clôture — sinon double décompte à la reclôture), repasse le
+  contrat `Épuisé` → `Actif` si besoin, puis `En attente d'approbation` →
+  `En attente` (déverrouillé, l'agent peut modifier)
+- `POST /{id}/refuser_modification/` (Chef de dépôt) : `En attente
+  d'approbation` → `Clôturé` (rien ne change, pas de restitution)
+- L'agent modifie, puis reclôture (`/cloturer/`) pour refaire le cycle
+  complet (décompte frais + nouveau PDF) — testé, aucun double décompte.
+
+**Bibliothèque PDF : ReportLab, pas WeasyPrint** (décision confirmée) —
+WeasyPrint nécessite des dépendances système (GTK/Pango) pénibles à
+installer sous Windows en dev local ; ReportLab est pur Python, sans
+dépendance système. À reconsidérer une fois le projet sous Docker/Linux
+si un rendu HTML/CSS plus proche des maquettes Stitch est voulu.
 
 ### Colis (bille)
 Le point de jonction réel entre transport et contrat — chaque bille
-individuelle reçue.
-Champs : numero_bille, longueur, diametre, volume, qualite,
+individuelle reçue. Pas de champ `qualite` (retiré, pas d'utilité
+identifiée).
+Champs : numero_bille, longueur (m), diametre (m),
+**volume (calculé automatiquement, jamais saisi — formule cylindre
+π×(diametre/2)²×longueur, arrondi à 2 décimales)**,
 **lettre_voiture (FK → LettreVoiture, quel camion/réception)**,
-**contrat (FK → Contrat, quel contrat cette bille décompte)**,
-**marchandise (FK → Marchandise, quelle essence)**.
+**contrat (FK → Contrat, quel contrat cette bille décompte — restreint
+aux contrats au statut Actif ET du même client que la LettreVoiture)**,
+**marchandise (FK → Marchandise, quelle essence — jamais saisie, déduite
+automatiquement de contrat.marchandise)**.
 
 ### RÈGLE MÉTIER CRITIQUE (confirmée par l'utilisateur, remplace une version
 antérieure où la FK Contrat était sur LettreVoiture)
@@ -183,8 +237,10 @@ Pattern UX convenu pour l'écran Réception : liste/historique en premier,
 panneau latéral (drawer, ~70% largeur, pas un modal centré) pour le
 formulaire, validation ferme le panneau sans changement de page, bouton par
 ligne d'historique pour voir le bordereau en viewer PDF intégré et
-téléchargeable. PDF généré côté backend (ex: WeasyPrint), endpoint du type
-GET /api/receptions/{id}/bordereau/.
+téléchargeable. PDF généré côté backend avec **ReportLab** (voir section
+LettreVoiture), endpoint `GET /api/lettres-voiture/{id}/bordereau/`
+(implémenté) — le bouton "Générer le bordereau" appelle en fait d'abord
+`POST .../cloturer/` puis ce `GET` pour l'affichage/téléchargement.
 
 ## Workflow Git
 - `main` : protégée par un ruleset GitHub (PR obligatoire, suppressions et
@@ -210,10 +266,17 @@ modèle suivant depuis `develop` à jour.
   mergée sur `develop`
 - ✅ Modèle **Contrat** avec numéro auto-généré, statut/workflow de
   validation (En attente/Actif/Épuisé, actions valider/rejeter), verrou de
-  modification — testé, pas encore committé/mergé à ce stade
-- ⏳ **Prochaine étape** : modèle `LettreVoiture` + `Colis` (le plus dense —
-  logique de décompte par contrat, validation essence/contrat), puis
-  `Chargement`, puis génération PDF des bordereaux
+  modification — PR mergée sur `develop`
+- ✅ Modèles **LettreVoiture** + **Colis**, avec en plus (ajouté en cours
+  de route, pas dans le plan initial) : numéro de lettre de voiture
+  auto-généré, marchandise déduite automatiquement du contrat, volume
+  calculé automatiquement (formule cylindre), filtre contrat par
+  client+statut, **et la clôture avec décompte + génération PDF du
+  bordereau (ReportLab)** normalement prévue pour plus tard — avancée
+  maintenant sur demande explicite de l'utilisateur. Testé, pas encore
+  committé/mergé à ce stade.
+- ⏳ **Prochaine étape** : modèle `Chargement` (logique symétrique côté
+  expédition)
 - ⏳ Écran/onglet Notifications (validation des contrats par le Chef de
   dépôt) à ajouter aux maquettes Stitch
 - ⏳ Verrouillage API (`IsAuthenticated` + JWT + permissions par rôle) —

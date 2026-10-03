@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import CompteUtilisateur, Contrat, Marchandise, MoyenTransport, Tiers
+from .models import (
+    Colis,
+    CompteUtilisateur,
+    Contrat,
+    LettreVoiture,
+    Marchandise,
+    MoyenTransport,
+    Tiers,
+)
 
 
 @admin.register(Tiers)
@@ -44,3 +52,35 @@ class ContratAdmin(admin.ModelAdmin):
     list_filter = ("statut", "type", "marchandise")
     search_fields = ("numero_contrat", "provenance", "client__nom")
     readonly_fields = ("numero_contrat", "date_creation")
+
+
+class ColisInline(admin.TabularInline):
+    model = Colis
+    extra = 0
+    readonly_fields = ("marchandise", "volume")
+
+
+@admin.register(LettreVoiture)
+class LettreVoitureAdmin(admin.ModelAdmin):
+    list_display = (
+        "numero_lettre_voiture",
+        "numero_bl",
+        "immatriculation_camion",
+        "client",
+        "transporteur",
+        "chargeur",
+        "date_arrivee",
+        "statut",
+    )
+    list_filter = ("statut", "date_arrivee")
+    search_fields = ("numero_lettre_voiture", "numero_bl", "immatriculation_camion", "client__nom")
+    readonly_fields = ("numero_lettre_voiture", "statut", "bordereau", "date_cloture")
+    inlines = [ColisInline]
+
+
+@admin.register(Colis)
+class ColisAdmin(admin.ModelAdmin):
+    list_display = ("numero_bille", "lettre_voiture", "contrat", "marchandise", "volume")
+    list_filter = ("marchandise",)
+    search_fields = ("numero_bille",)
+    readonly_fields = ("marchandise", "volume")
