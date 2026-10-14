@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    Chargement,
     Colis,
     CompteUtilisateur,
     Contrat,
@@ -80,7 +81,22 @@ class LettreVoitureAdmin(admin.ModelAdmin):
 
 @admin.register(Colis)
 class ColisAdmin(admin.ModelAdmin):
-    list_display = ("numero_bille", "lettre_voiture", "contrat", "marchandise", "volume")
+    list_display = (
+        "numero_bille",
+        "lettre_voiture",
+        "contrat",
+        "marchandise",
+        "volume",
+        "chargement",
+    )
     list_filter = ("marchandise",)
     search_fields = ("numero_bille",)
     readonly_fields = ("marchandise", "volume")
+
+
+@admin.register(Chargement)
+class ChargementAdmin(admin.ModelAdmin):
+    list_display = ("numero_dex", "destination", "moyen_transport", "date", "statut")
+    list_filter = ("statut", "date")
+    search_fields = ("numero_dex", "destination")
+    readonly_fields = ("statut", "bordereau", "date_cloture")

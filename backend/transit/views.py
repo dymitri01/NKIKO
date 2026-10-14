@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from .models import (
+    Chargement,
     Colis,
     CompteUtilisateur,
     Contrat,
@@ -13,6 +14,7 @@ from .models import (
     Tiers,
 )
 from .serializers import (
+    ChargementSerializer,
     ColisSerializer,
     CompteUtilisateurSerializer,
     ContratSerializer,
@@ -151,12 +153,90 @@ class LettreVoitureViewSet(viewsets.ModelViewSet):
 
 
 class ColisViewSet(viewsets.ModelViewSet):
-    queryset = Colis.objects.select_related("lettre_voiture", "contrat", "marchandise").all()
+    queryset = Colis.objects.select_related(
+        "lettre_voiture", "contrat", "marchandise", "chargement"
+    ).all()
     serializer_class = ColisSerializer
 
     def perform_destroy(self, instance):
-        if instance.lettre_voiture.statut == LettreVoiture.Statut.CLOTURE:
+        if instance.chargement_id and instance.chargement.statut != Chargement.Statut.EN_ATTENTE:
             raise serializers.ValidationError(
-                "Impossible de supprimer une bille d'une réception déjà clôturée."
+                "Impossible de supprimer une bille déjà chargée sur un "
+                "chargement qui n'est plus en attente."
+            )
+        if instance.lettre_voiture.statut != LettreVoiture.Statut.EN_ATTENTE:
+            raise serializers.ValidationError(
+                "Impossible de supprimer une bille d'une réception qui n'est "
+                "pas en attente."
             )
         instance.delete()
+
+
+class ChargementViewSet(viewsets.ModelViewSet):
+    queryset = Chargement.objects.select_related("moyen_transport").prefetch_related(
+        "colis_charges"
+    ).all()
+    serializer_class = ChargementSerializer
+
+    def perform_destroy(self, instance):
+        if instance.statut != Chargement.Statut.EN_ATTENTE:
+            raise serializers.ValidationError(
+                "Seul un chargement en attente peut être supprimé."
+            )
+        instance.delete()
+
+    @action(detail=True, methods=["post"])
+    def cloturer(self, request, pk=None):
+        chargement = self.get_object()
+        try:
+            chargement.cloturer()
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(self.get_serializer(chargement).data)
+
+    @action(detail=True, methods=["post"])
+    def demander_modification(self, request, pk=None):
+        chargement = self.get_object()
+        if chargement.statut != Chargement.Statut.CLOTURE:
+            return Response(
+                {"detail": "Seul un chargement clôturé peut faire l'objet d'une demande de modification."},
+                status=400,
+            )
+        chargement.statut = Chargement.Statut.EN_ATTENTE_APPROBATION
+        chargement.save(update_fields=["statut"])
+        return Response(self.get_serializer(chargement).data)
+
+    @action(detail=True, methods=["post"])
+    def autoriser_modification(self, request, pk=None):
+        chargement = self.get_object()
+        try:
+            chargement.rouvrir()
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(self.get_serializer(chargement).data)
+
+    @action(detail=True, methods=["post"])
+    def refuser_modification(self, request, pk=None):
+        chargement = self.get_object()
+        if chargement.statut != Chargement.Statut.EN_ATTENTE_APPROBATION:
+            return Response(
+                {"detail": "Seul un chargement en attente d'approbation peut être refusé."},
+                status=400,
+            )
+        chargement.statut = Chargement.Statut.CLOTURE
+        chargement.save(update_fields=["statut"])
+        return Response(self.get_serializer(chargement).data)
+
+    @action(detail=True, methods=["get"])
+    def bordereau(self, request, pk=None):
+        chargement = self.get_object()
+        if not chargement.bordereau:
+            return Response(
+                {"detail": "Le bordereau n'a pas encore été généré pour ce chargement."},
+                status=404,
+            )
+        return FileResponse(
+            chargement.bordereau.open("rb"),
+            content_type="application/pdf",
+            filename=f"{chargement.numero_dex}.pdf",
+        )
