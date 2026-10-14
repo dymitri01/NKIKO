@@ -297,6 +297,14 @@ class Colis(models.Model):
     volume = models.DecimalField(
         max_digits=10, decimal_places=2, blank=True, help_text="En m³, calculé automatiquement"
     )
+    chargement = models.ForeignKey(
+        "Chargement",
+        on_delete=models.PROTECT,
+        related_name="colis_charges",
+        null=True,
+        blank=True,
+    )
+
     class Meta:
         verbose_name = "Colis"
         verbose_name_plural = "Colis"
@@ -312,3 +320,71 @@ class Colis(models.Model):
 
     def __str__(self):
         return self.numero_bille
+
+
+class Chargement(models.Model):
+    class Statut(models.TextChoices):
+        EN_ATTENTE = "EN_ATTENTE", "En attente"
+        CLOTURE = "CLOTURE", "Clôturé"
+        EN_ATTENTE_APPROBATION = "EN_ATTENTE_APPROBATION", "En attente d'approbation"
+
+    numero_dex = models.CharField(max_length=50)
+    date = models.DateField()
+    destination = models.CharField(max_length=100)
+    moyen_transport = models.ForeignKey(
+        MoyenTransport,
+        on_delete=models.PROTECT,
+        related_name="chargements",
+    )
+    statut = models.CharField(max_length=25, choices=Statut.choices, default=Statut.EN_ATTENTE)
+    bordereau = models.FileField(upload_to="bordereaux/", blank=True, null=True)
+    date_cloture = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        verbose_name = "Chargement"
+        verbose_name_plural = "Chargements"
+        ordering = ["-id"]
+
+    def cloturer(self):
+        from .pdf import generer_bordereau_chargement_pdf
+
+        if self.statut != self.Statut.EN_ATTENTE:
+            raise ValueError("Seul un chargement en attente peut être clôturé.")
+
+        colis_list = list(self.colis_charges.all())
+        if not colis_list:
+            raise ValueError("Impossible de clôturer un chargement sans aucune bille.")
+
+        volume_total = sum((c.volume for c in colis_list), Decimal("0"))
+        if volume_total > self.moyen_transport.volume:
+            raise ValueError(
+                f"Le volume total chargé ({volume_total}) dépasse la capacité du "
+                f"moyen de transport {self.moyen_transport.numero} "
+                f"({self.moyen_transport.volume})."
+            )
+
+        with transaction.atomic():
+            self.moyen_transport.statut = MoyenTransport.Statut.EN_UTILISATION
+            self.moyen_transport.save(update_fields=["statut"])
+
+            pdf_bytes = generer_bordereau_chargement_pdf(self)
+            self.bordereau.save(
+                f"{self.numero_dex}.pdf", ContentFile(pdf_bytes), save=False
+            )
+            self.statut = self.Statut.CLOTURE
+            self.date_cloture = timezone.now()
+            self.save(update_fields=["statut", "date_cloture", "bordereau"])
+
+    def rouvrir(self):
+        if self.statut != self.Statut.EN_ATTENTE_APPROBATION:
+            raise ValueError(
+                "Seul un chargement en attente d'approbation peut être rouvert."
+            )
+        with transaction.atomic():
+            self.moyen_transport.statut = MoyenTransport.Statut.DISPONIBLE
+            self.moyen_transport.save(update_fields=["statut"])
+            self.statut = self.Statut.EN_ATTENTE
+            self.save(update_fields=["statut"])
+
+    def __str__(self):
+        return self.numero_dex

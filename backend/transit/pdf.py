@@ -6,6 +6,39 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+TABLE_STYLE = TableStyle(
+    [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2f5233")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("ALIGN", (3, 0), (-1, -1), "RIGHT"),
+    ]
+)
+
+
+def _table_billes(colis_queryset):
+    data = [["N° bille", "Contrat", "Essence", "Longueur (m)", "Diamètre (m)", "Volume (m³)"]]
+    total = 0
+    for colis in colis_queryset.select_related("contrat", "marchandise"):
+        data.append(
+            [
+                colis.numero_bille,
+                colis.contrat.numero_contrat,
+                colis.marchandise.nom,
+                str(colis.longueur),
+                str(colis.diametre),
+                str(colis.volume),
+            ]
+        )
+        total += colis.volume
+    data.append(["", "", "", "", "Total", str(total)])
+
+    table = Table(data, repeatRows=1)
+    table.setStyle(TABLE_STYLE)
+    return table
+
 
 def generer_bordereau_pdf(lettre_voiture):
     buffer = io.BytesIO()
@@ -32,36 +65,33 @@ def generer_bordereau_pdf(lettre_voiture):
         elements.append(Paragraph(ligne, styles["Normal"]))
     elements.append(Spacer(1, 1 * cm))
 
-    data = [["N° bille", "Contrat", "Essence", "Longueur (m)", "Diamètre (m)", "Volume (m³)"]]
-    total = 0
-    for colis in lettre_voiture.colis.select_related("contrat", "marchandise").all():
-        data.append(
-            [
-                colis.numero_bille,
-                colis.contrat.numero_contrat,
-                colis.marchandise.nom,
-                str(colis.longueur),
-                str(colis.diametre),
-                str(colis.volume),
-            ]
-        )
-        total += colis.volume
-    data.append(["", "", "", "", "Total", str(total)])
+    elements.append(_table_billes(lettre_voiture.colis))
 
-    table = Table(data, repeatRows=1)
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2f5233")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("ALIGN", (3, 0), (-1, -1), "RIGHT"),
-            ]
-        )
-    )
-    elements.append(table)
+    doc.build(elements)
+    return buffer.getvalue()
+
+
+def generer_bordereau_chargement_pdf(chargement):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    elements.append(Paragraph("Bordereau de chargement / expédition", styles["Title"]))
+    elements.append(Spacer(1, 0.5 * cm))
+
+    infos = [
+        f"Numéro DEX : {chargement.numero_dex}",
+        f"Date : {chargement.date}",
+        f"Destination : {chargement.destination}",
+        f"Moyen de transport : {chargement.moyen_transport.numero} "
+        f"({chargement.moyen_transport.get_type_display()})",
+    ]
+    for ligne in infos:
+        elements.append(Paragraph(ligne, styles["Normal"]))
+    elements.append(Spacer(1, 1 * cm))
+
+    elements.append(_table_billes(chargement.colis_charges))
 
     doc.build(elements)
     return buffer.getvalue()

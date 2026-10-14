@@ -1,6 +1,9 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from .models import (
+    Chargement,
     Colis,
     CompteUtilisateur,
     Contrat,
@@ -95,6 +98,14 @@ class ColisSerializer(serializers.ModelSerializer):
     lettre_voiture_numero = serializers.CharField(
         source="lettre_voiture.numero_lettre_voiture", read_only=True
     )
+    chargement = serializers.PrimaryKeyRelatedField(
+        queryset=Chargement.objects.filter(statut=Chargement.Statut.EN_ATTENTE),
+        required=False,
+        allow_null=True,
+    )
+    chargement_numero = serializers.CharField(
+        source="chargement.numero_dex", read_only=True, default=None
+    )
 
     class Meta:
         model = Colis
@@ -110,6 +121,8 @@ class ColisSerializer(serializers.ModelSerializer):
             "longueur",
             "diametre",
             "volume",
+            "chargement",
+            "chargement_numero",
         ]
         read_only_fields = ["marchandise", "volume"]
 
@@ -118,12 +131,43 @@ class ColisSerializer(serializers.ModelSerializer):
             "lettre_voiture", getattr(self.instance, "lettre_voiture", None)
         )
         contrat = attrs.get("contrat", getattr(self.instance, "contrat", None))
+        chargement = attrs.get("chargement", getattr(self.instance, "chargement", None))
+
         if lettre_voiture and contrat and contrat.client_id != lettre_voiture.client_id:
             raise serializers.ValidationError(
                 f"Le contrat {contrat.numero_contrat} appartient à un autre "
                 f"client que celui de cette réception ({lettre_voiture.client.nom})."
             )
-        if lettre_voiture and lettre_voiture.statut != LettreVoiture.Statut.EN_ATTENTE:
+
+        if self.instance and self.instance.chargement_id and (
+            self.instance.chargement.statut != Chargement.Statut.EN_ATTENTE
+        ):
+            raise serializers.ValidationError(
+                "Cette bille a déjà été chargée sur un chargement qui n'est "
+                "plus en attente, elle ne peut plus être modifiée."
+            )
+
+        if chargement and lettre_voiture and lettre_voiture.statut != LettreVoiture.Statut.CLOTURE:
+            raise serializers.ValidationError(
+                "Une bille doit appartenir à une réception clôturée avant de "
+                "pouvoir être chargée."
+            )
+
+        if lettre_voiture and lettre_voiture.statut == LettreVoiture.Statut.CLOTURE:
+            # Réception finalisée : seul le rattachement à un chargement reste
+            # possible, tout autre champ doit rester inchangé par rapport à
+            # l'existant (comparaison par valeur pour accepter un PUT qui
+            # renvoie les mêmes valeurs sans rien changer).
+            for champ, valeur in attrs.items():
+                if champ == "chargement":
+                    continue
+                if self.instance is None or getattr(self.instance, champ) != valeur:
+                    raise serializers.ValidationError(
+                        "Une bille d'une réception clôturée ne peut plus être "
+                        "modifiée (seul le rattachement à un chargement reste "
+                        "possible)."
+                    )
+        elif lettre_voiture and lettre_voiture.statut != LettreVoiture.Statut.EN_ATTENTE:
             raise serializers.ValidationError(
                 "Les billes de cette réception ne sont pas modifiables dans son "
                 f"statut actuel ({lettre_voiture.get_statut_display()})."
@@ -175,5 +219,41 @@ class LettreVoitureSerializer(serializers.ModelSerializer):
                 "Cette réception n'est pas modifiable dans son statut actuel "
                 f"({instance.get_statut_display()}). Demande une modification "
                 "d'abord si elle est clôturée."
+            )
+        return super().update(instance, validated_data)
+
+
+class ChargementSerializer(serializers.ModelSerializer):
+    moyen_transport_numero = serializers.CharField(
+        source="moyen_transport.numero", read_only=True
+    )
+    colis_charges = ColisSerializer(many=True, read_only=True)
+    volume_total = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Chargement
+        fields = [
+            "id",
+            "numero_dex",
+            "date",
+            "destination",
+            "moyen_transport",
+            "moyen_transport_numero",
+            "statut",
+            "date_cloture",
+            "colis_charges",
+            "volume_total",
+        ]
+        read_only_fields = ["statut", "date_cloture"]
+
+    def get_volume_total(self, obj):
+        return sum((c.volume for c in obj.colis_charges.all()), Decimal("0"))
+
+    def update(self, instance, validated_data):
+        if instance.statut != Chargement.Statut.EN_ATTENTE:
+            raise serializers.ValidationError(
+                "Ce chargement n'est pas modifiable dans son statut actuel "
+                f"({instance.get_statut_display()}). Demande une modification "
+                "d'abord si il est clôturé."
             )
         return super().update(instance, validated_data)

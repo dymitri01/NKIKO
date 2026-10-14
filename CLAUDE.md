@@ -169,12 +169,34 @@ décompte déjà un contrat), regrouper les Colis par Contrat et décrémenter
 chaque Contrat.volume_total_restant du sous-total correspondant. Le statut
 du contrat passe à "Épuisé" quand volume_total_restant atteint 0.
 
-### Chargement
-Logique symétrique côté expédition — des billes en stock sont chargées vers
-un Moyen_Transport, avec destination et Numéro_DEX (document d'exportation
-douanier). Génère aussi un bordereau (bordereau de chargement/expédition).
-Champs : date, destination, numero_dex, moyen_transport (FK),
-volume_chargement.
+### Chargement — IMPLÉMENTÉ (structure précisée en cours de route)
+Logique symétrique côté expédition. Contrairement à la description
+initiale ("volume_chargement" en champ simple), `Chargement` suit les
+billes **individuellement**, comme `LettreVoiture` le fait côté
+réception — décision confirmée pour rester cohérent avec le suivi précis
+utilisé partout ailleurs :
+- `Colis` gagne un champ `chargement` (FK nullable vers `Chargement`) —
+  une bille "en stock" = `Colis` dont `chargement` est encore vide
+- Une bille ne peut être chargée que si sa `LettreVoiture` est déjà
+  `Clôturé`e (réception finalisée) et que le `Chargement` cible est
+  `En attente`
+- Une fois chargée (et le chargement clôturé), la bille devient
+  intouchable (comme pour la réception)
+- `volume_chargement` n'existe plus comme champ saisi — remplacé par
+  `volume_total`, calculé en sommant les billes attachées
+
+Champs de `Chargement` : numero_dex (saisi par l'agent, document douanier
+externe — pas généré par l'appli), date, destination, moyen_transport
+(FK), statut, bordereau, date_cloture.
+
+**Même cycle que `LettreVoiture`** (statut En attente / Clôturé / En
+attente d'approbation, demander_modification / autoriser_modification /
+refuser_modification, génération PDF à la clôture). Particularités :
+- À la clôture, bloque si le volume total chargé dépasse la **capacité**
+  du `MoyenTransport` (son champ `volume`, jusque-là inutilisé) — pas de
+  décompte de Contrat ici (déjà fait à la réception)
+- À la clôture, passe `MoyenTransport.statut` à `En utilisation` ; à la
+  réouverture (`autoriser_modification`), le repasse à `Disponible`
 
 ### MoyenTransport
 Une seule table (pas deux tables séparées Wagon/Conteneur) — décision
@@ -275,8 +297,13 @@ modèle suivant depuis `develop` à jour.
   bordereau (ReportLab)** normalement prévue pour plus tard — avancée
   maintenant sur demande explicite de l'utilisateur. Testé, pas encore
   committé/mergé à ce stade.
-- ⏳ **Prochaine étape** : modèle `Chargement` (logique symétrique côté
-  expédition)
+- ✅ Modèle **Chargement** (suivi par bille comme LettreVoiture, cycle de
+  clôture + bordereau PDF, blocage si dépassement de la capacité du
+  MoyenTransport) — testé, pas encore committé/mergé à ce stade
+- ⏳ **Prochaine étape** : tous les modèles backend de la liste initiale
+  sont faits — reste à décider entre (a) démarrer le frontend React, ou
+  (b) faire le verrouillage API (`IsAuthenticated` + JWT + permissions
+  par rôle, voir ci-dessous) avant le frontend
 - ⏳ Écran/onglet Notifications (validation des contrats par le Chef de
   dépôt) à ajouter aux maquettes Stitch
 - ⏳ Verrouillage API (`IsAuthenticated` + JWT + permissions par rôle) —
