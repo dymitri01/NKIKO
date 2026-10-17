@@ -300,13 +300,31 @@ modèle suivant depuis `develop` à jour.
 - ✅ Modèle **Chargement** (suivi par bille comme LettreVoiture, cycle de
   clôture + bordereau PDF, blocage si dépassement de la capacité du
   MoyenTransport) — testé, pas encore committé/mergé à ce stade
-- ⏳ **Prochaine étape** : tous les modèles backend de la liste initiale
-  sont faits — reste à décider entre (a) démarrer le frontend React, ou
-  (b) faire le verrouillage API (`IsAuthenticated` + JWT + permissions
-  par rôle, voir ci-dessous) avant le frontend
+- ✅ **Verrouillage API — IMPLÉMENTÉ** : `djangorestframework-simplejwt`
+  comme `DEFAULT_AUTHENTICATION_CLASSES` (remplace l'authentification par
+  session de DRF — se connecter à `/admin/` n'authentifie plus les appels
+  `/api/...`, il faut un token JWT dans `Authorization: Bearer <token>`),
+  `IsAuthenticated` comme `DEFAULT_PERMISSION_CLASSES` (tout endpoint
+  nécessite d'être connecté par défaut). Endpoints :
+  `POST /api/token/` (login, renvoie `access`+`refresh`),
+  `POST /api/token/refresh/`.
+
+  Permissions par rôle (`transit/permissions.py`), matrice confirmée par
+  l'utilisateur :
+  - **Administrateur** : accès complet à tout, y compris
+    `CompteUtilisateur` (seul rôle autorisé dessus)
+  - **Chef de dépôt** : même accès opérationnel qu'un Agent, + les
+    actions d'approbation (`valider`/`rejeter` sur Contrat,
+    `autoriser_modification`/`refuser_modification` sur
+    LettreVoiture/Chargement)
+  - **Agent de transit** : CRUD complet sur Tiers/Marchandise/
+    MoyenTransport/Contrat/LettreVoiture/Colis/Chargement, SAUF les
+    actions d'approbation ci-dessus et SAUF `CompteUtilisateur`
+
+  3 comptes de test créés pour vérifier les 3 rôles (mot de passe
+  `test1234` pour chacun) : `test_admin`, `test_agent`, `test_chef` — à
+  garder pour tester, ou supprimer plus tard si besoin.
+- ⏳ **Prochaine étape** : démarrer le frontend React (tous les modèles
+  backend + le verrouillage API sont maintenant faits)
 - ⏳ Écran/onglet Notifications (validation des contrats par le Chef de
   dépôt) à ajouter aux maquettes Stitch
-- ⏳ Verrouillage API (`IsAuthenticated` + JWT + permissions par rôle) —
-  volontairement différé jusqu'à ce que les rôles (CompteUtilisateur)
-  soient en place ; à faire maintenant que c'est le cas, mais pas encore
-  fait
