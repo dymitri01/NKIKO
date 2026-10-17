@@ -13,6 +13,7 @@ from .models import (
     MoyenTransport,
     Tiers,
 )
+from .permissions import EstAdministrateur, EstAdministrateurOuChefDepot
 from .serializers import (
     ChargementSerializer,
     ColisSerializer,
@@ -33,6 +34,7 @@ class TiersViewSet(viewsets.ModelViewSet):
 class CompteUtilisateurViewSet(viewsets.ModelViewSet):
     queryset = CompteUtilisateur.objects.select_related("user").all()
     serializer_class = CompteUtilisateurSerializer
+    permission_classes = [EstAdministrateur]
 
 
 class MarchandiseViewSet(viewsets.ModelViewSet):
@@ -58,6 +60,11 @@ class ContratViewSet(viewsets.ModelViewSet):
         if statut:
             queryset = queryset.filter(statut=statut)
         return queryset
+
+    def get_permissions(self):
+        if self.action in ("valider", "rejeter"):
+            return [EstAdministrateurOuChefDepot()]
+        return super().get_permissions()
 
     @action(detail=True, methods=["post"])
     def valider(self, request, pk=None):
@@ -87,6 +94,18 @@ class LettreVoitureViewSet(viewsets.ModelViewSet):
         "client", "chargeur", "transporteur"
     ).prefetch_related("colis").all()
     serializer_class = LettreVoitureSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        statut = self.request.query_params.get("statut")
+        if statut:
+            queryset = queryset.filter(statut=statut)
+        return queryset
+
+    def get_permissions(self):
+        if self.action in ("autoriser_modification", "refuser_modification"):
+            return [EstAdministrateurOuChefDepot()]
+        return super().get_permissions()
 
     def perform_destroy(self, instance):
         if instance.statut != LettreVoiture.Statut.EN_ATTENTE:
@@ -177,6 +196,18 @@ class ChargementViewSet(viewsets.ModelViewSet):
         "colis_charges"
     ).all()
     serializer_class = ChargementSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        statut = self.request.query_params.get("statut")
+        if statut:
+            queryset = queryset.filter(statut=statut)
+        return queryset
+
+    def get_permissions(self):
+        if self.action in ("autoriser_modification", "refuser_modification"):
+            return [EstAdministrateurOuChefDepot()]
+        return super().get_permissions()
 
     def perform_destroy(self, instance):
         if instance.statut != Chargement.Statut.EN_ATTENTE:
