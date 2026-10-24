@@ -1,6 +1,7 @@
 from django.http import FileResponse
 from rest_framework import serializers, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import (
@@ -24,6 +25,20 @@ from .serializers import (
     MoyenTransportSerializer,
     TiersSerializer,
 )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def moi(request):
+    compte = getattr(request.user, "compte_utilisateur", None)
+    return Response(
+        {
+            "username": request.user.username,
+            "role": compte.role if compte else None,
+            "role_display": compte.get_role_display() if compte else None,
+            "is_superuser": request.user.is_superuser,
+        }
+    )
 
 
 class TiersViewSet(viewsets.ModelViewSet):
