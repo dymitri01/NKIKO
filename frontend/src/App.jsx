@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
+import ContratsPage from './pages/ContratsPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 import AppLayout from './components/layout/AppLayout';
 import ProtectedRoute from './routes/ProtectedRoute';
@@ -18,7 +19,7 @@ export default function App() {
         }
       >
         <Route index element={<DashboardPage />} />
-        <Route path="contrats" element={<PlaceholderPage title="Contrats" />} />
+        <Route path="contrats" element={<ContratsPage />} />
         <Route path="reception" element={<PlaceholderPage title="Réception" />} />
         <Route path="expeditions" element={<PlaceholderPage title="Expéditions" />} />
         <Route path="stock" element={<PlaceholderPage title="Stock" />} />
