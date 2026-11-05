@@ -10,9 +10,9 @@ import Alert from '@mui/material/Alert';
 import Divider from '@mui/material/Divider';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import api from '../../api/client';
 import { extractErrorMessage } from '../../utils/apiError';
+import { BilleRow, BilleRowHeader, calcVolume } from './BilleRow';
 
 const EMPTY_GENERALE = {
   numero_bl: '',
@@ -25,12 +25,6 @@ const EMPTY_GENERALE = {
   immatriculation_camion: '',
   pays_provenance: '',
 };
-
-function calcVolume(longueur, diametre) {
-  const L = parseFloat(longueur) || 0;
-  const D = parseFloat(diametre) || 0;
-  return (Math.PI * (D / 2) ** 2 * L).toFixed(2);
-}
 
 let tempIdCounter = 0;
 function nextTempId() {
@@ -46,7 +40,9 @@ export default function ReceptionDrawer({ open, onClose, lettreVoiture, onSaved 
   const [chargeurs, setChargeurs] = useState([]);
   const [transporteurs, setTransporteurs] = useState([]);
   const [contratsDuClient, setContratsDuClient] = useState([]);
-  const [billes, setBilles] = useState([]);
+  const [existingBilles, setExistingBilles] = useState([]); // colis déjà en base (id réel)
+  const [deletedIds, setDeletedIds] = useState([]);
+  const [billes, setBilles] = useState([]); // nouvelles billes (tempId)
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -54,6 +50,7 @@ export default function ReceptionDrawer({ open, onClose, lettreVoiture, onSaved 
     if (!open) return;
     setError('');
     setBilles([]);
+    setDeletedIds([]);
 
     api.get('tiers/').then(({ data }) => {
       setClients(data.filter((t) => t.categorie === 'CLIENT'));
@@ -73,8 +70,22 @@ export default function ReceptionDrawer({ open, onClose, lettreVoiture, onSaved 
         immatriculation_camion: lettreVoiture.immatriculation_camion,
         pays_provenance: lettreVoiture.pays_provenance,
       });
+      setExistingBilles(
+        (lettreVoiture.colis || []).map((c) => ({
+          id: c.id,
+          numero_bille: c.numero_bille,
+          contrat: c.contrat,
+          longueur: c.longueur,
+          diametre: c.diametre,
+          // gardés en secours pour afficher l'option dans le <select> même
+          // si ce contrat n'est plus Actif (donc absent de contratsDuClient)
+          _contratNumero: c.contrat_numero,
+          _marchandiseNom: c.marchandise_nom,
+        }))
+      );
     } else {
       setGenerale(EMPTY_GENERALE);
+      setExistingBilles([]);
     }
   }, [open, lettreVoiture]);
 
@@ -88,8 +99,37 @@ export default function ReceptionDrawer({ open, onClose, lettreVoiture, onSaved 
       .then(({ data }) => setContratsDuClient(data));
   }, [generale.client]);
 
+  // Ajoute le contrat déjà choisi sur une bille existante à la liste
+  // d'options si jamais il n'est plus "Actif" (sinon le <select> n'aurait
+  // pas sa valeur courante dans ses options).
+  function optionsFor(existingBille) {
+    if (!existingBille) return contratsDuClient;
+    const dejaPresent = contratsDuClient.some((c) => c.id === existingBille.contrat);
+    if (dejaPresent) return contratsDuClient;
+    return [
+      ...contratsDuClient,
+      {
+        id: existingBille.contrat,
+        numero_contrat: existingBille._contratNumero,
+        marchandise_nom: existingBille._marchandiseNom,
+        volume_total_restant: null,
+      },
+    ];
+  }
+
   function handleGeneraleChange(field) {
     return (event) => setGenerale((prev) => ({ ...prev, [field]: event.target.value }));
+  }
+
+  function updateExistingBille(id, field, value) {
+    setExistingBilles((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, [field]: value } : b))
+    );
+  }
+
+  function removeExistingBille(id) {
+    setExistingBilles((prev) => prev.filter((b) => b.id !== id));
+    setDeletedIds((prev) => [...prev, id]);
   }
 
   function addBille() {
@@ -109,10 +149,9 @@ export default function ReceptionDrawer({ open, onClose, lettreVoiture, onSaved 
     setBilles((prev) => prev.filter((b) => b.tempId !== tempId));
   }
 
-  const totalNouveau = billes.reduce(
-    (sum, b) => sum + (parseFloat(calcVolume(b.longueur, b.diametre)) || 0),
-    0
-  );
+  const total =
+    existingBilles.reduce((sum, b) => sum + (parseFloat(calcVolume(b.longueur, b.diametre)) || 0), 0) +
+    billes.reduce((sum, b) => sum + (parseFloat(calcVolume(b.longueur, b.diametre)) || 0), 0);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -126,6 +165,19 @@ export default function ReceptionDrawer({ open, onClose, lettreVoiture, onSaved 
       } else {
         const { data } = await api.post('lettres-voiture/', generale);
         lvId = data.id;
+      }
+
+      for (const id of deletedIds) {
+        await api.delete(`colis/${id}/`);
+      }
+
+      for (const eb of existingBilles) {
+        await api.patch(`colis/${eb.id}/`, {
+          contrat: eb.contrat,
+          numero_bille: eb.numero_bille,
+          longueur: eb.longueur,
+          diametre: eb.diametre,
+        });
       }
 
       for (const b of billes) {
@@ -221,27 +273,9 @@ export default function ReceptionDrawer({ open, onClose, lettreVoiture, onSaved 
             <TextField label="Immatriculation camion" value={generale.immatriculation_camion} onChange={handleGeneraleChange('immatriculation_camion')} required />
           </Box>
 
-          {isEdit && lettreVoiture.colis?.length > 0 && (
-            <>
-              <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700 }}>
-                Billes déjà enregistrées
-              </Typography>
-              <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden', mt: 1, mb: 3 }}>
-                {lettreVoiture.colis.map((c) => (
-                  <Box key={c.id} sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', px: 2, py: 1, borderTop: '1px solid', borderColor: 'divider', fontSize: 13 }}>
-                    <span>{c.numero_bille}</span>
-                    <span>{c.contrat_numero}</span>
-                    <span style={{ fontStyle: 'italic', color: '#8A8976' }}>{c.marchandise_nom}</span>
-                    <span>{c.volume} m³</span>
-                  </Box>
-                ))}
-              </Box>
-            </>
-          )}
-
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
             <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>
-              {isEdit ? 'Ajouter de nouvelles billes' : 'Billes reçues'}
+              Billes
             </Typography>
             <Button
               size="small"
@@ -261,66 +295,32 @@ export default function ReceptionDrawer({ open, onClose, lettreVoiture, onSaved 
           )}
 
           <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr 0.9fr 0.9fr 0.9fr 44px', px: 2, py: 1, bgcolor: '#F7F5EE' }}>
-              {['N° bille', 'Contrat', 'Longueur (m)', 'Diamètre (m)', 'Volume (m³)', ''].map((h) => (
-                <Typography key={h} variant="caption" fontWeight={700} color="text.secondary">
-                  {h}
-                </Typography>
-              ))}
-            </Box>
+            <BilleRowHeader />
 
-            {billes.map((b) => {
-              const contrat = contratsDuClient.find((c) => c.id === b.contrat);
-              return (
-                <Box key={b.tempId} sx={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr 0.9fr 0.9fr 0.9fr 44px', alignItems: 'center', px: 2, py: 1, borderTop: '1px solid', borderColor: 'divider', gap: 1 }}>
-                  <TextField
-                    size="small"
-                    value={b.numero_bille}
-                    onChange={(e) => updateBille(b.tempId, 'numero_bille', e.target.value)}
-                    required
-                  />
-                  <TextField
-                    size="small"
-                    select
-                    value={b.contrat}
-                    onChange={(e) => updateBille(b.tempId, 'contrat', e.target.value)}
-                    required
-                    helperText={contrat ? `Essence : ${contrat.marchandise_nom}` : ' '}
-                  >
-                    {contratsDuClient.map((c) => (
-                      <MenuItem key={c.id} value={c.id}>
-                        {c.numero_contrat} — {c.marchandise_nom} (restant {parseFloat(c.volume_total_restant).toFixed(1)} m³)
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                  <TextField
-                    size="small"
-                    type="number"
-                    value={b.longueur}
-                    onChange={(e) => updateBille(b.tempId, 'longueur', e.target.value)}
-                    required
-                  />
-                  <TextField
-                    size="small"
-                    type="number"
-                    value={b.diametre}
-                    onChange={(e) => updateBille(b.tempId, 'diametre', e.target.value)}
-                    required
-                  />
-                  <Typography variant="body2" fontWeight={600}>
-                    {calcVolume(b.longueur, b.diametre)}
-                  </Typography>
-                  <IconButton size="small" onClick={() => removeBille(b.tempId)}>
-                    <DeleteOutlineIcon fontSize="small" />
-                  </IconButton>
-                </Box>
-              );
-            })}
+            {existingBilles.map((b) => (
+              <BilleRow
+                key={b.id}
+                value={b}
+                options={optionsFor(b)}
+                onChange={(field, value) => updateExistingBille(b.id, field, value)}
+                onRemove={() => removeExistingBille(b.id)}
+              />
+            ))}
+
+            {billes.map((b) => (
+              <BilleRow
+                key={b.tempId}
+                value={b}
+                options={contratsDuClient}
+                onChange={(field, value) => updateBille(b.tempId, field, value)}
+                onRemove={() => removeBille(b.tempId)}
+              />
+            ))}
 
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr 0.9fr 0.9fr 0.9fr 44px', px: 2, py: 1.25, bgcolor: '#F7F5EE', borderTop: '1px solid', borderColor: 'divider' }}>
               <Box /><Box /><Box />
               <Typography variant="caption" fontWeight={700} sx={{ alignSelf: 'center' }}>Total</Typography>
-              <Typography variant="body2" fontWeight={700} color="primary.main">{totalNouveau.toFixed(2)} m³</Typography>
+              <Typography variant="body2" fontWeight={700} color="primary.main">{total.toFixed(2)} m³</Typography>
               <Box />
             </Box>
           </Box>
