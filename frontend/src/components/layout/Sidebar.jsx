@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import List from '@mui/material/List';
@@ -16,6 +17,7 @@ import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import AccountCircleOutlinedIcon from '@mui/icons-material/AccountCircleOutlined';
 import NotificationsOutlinedIcon from '@mui/icons-material/NotificationsOutlined';
 import BarChartOutlinedIcon from '@mui/icons-material/BarChartOutlined';
+import api from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 
 const NAV_ITEMS = [
@@ -31,12 +33,25 @@ const NAV_ITEMS = [
     icon: AccountCircleOutlinedIcon,
     rolesVisible: ['ADMINISTRATEUR'],
   },
-  { label: 'Notifications', to: '/notifications', icon: NotificationsOutlinedIcon, badge: 3 },
+  { label: 'Notifications', to: '/notifications', icon: NotificationsOutlinedIcon, badgeKey: 'notifications' },
   { label: 'Rapports', to: '/rapports', icon: BarChartOutlinedIcon },
 ];
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
+  const [notifCount, setNotifCount] = useState(0);
+
+  useEffect(() => {
+    Promise.all([
+      api.get('contrats/?statut=EN_ATTENTE'),
+      api.get('lettres-voiture/?statut=EN_ATTENTE_APPROBATION'),
+      api.get('chargements/?statut=EN_ATTENTE_APPROBATION'),
+    ])
+      .then(([a, b, c]) => setNotifCount(a.data.length + b.data.length + c.data.length))
+      .catch(() => setNotifCount(0));
+  }, []);
+
+  const badges = { notifications: notifCount };
 
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : '??';
   const navItems = NAV_ITEMS.filter(
@@ -82,39 +97,42 @@ export default function Sidebar() {
       </Box>
 
       <List sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-        {navItems.map(({ label, to, icon: Icon, badge }) => (
-          <ListItemButton
-            key={to}
-            component={NavLink}
-            to={to}
-            end={to === '/'}
-            sx={{
-              borderRadius: '12px',
-              py: 1.1,
-              px: 1.75,
-              '&.active': {
-                bgcolor: 'primary.light',
-                color: 'success.main',
-                fontWeight: 600,
-              },
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: 36, color: 'inherit' }}>
-              <Icon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText
-              primary={label}
-              primaryTypographyProps={{ fontSize: 14, fontWeight: 'inherit' }}
-            />
-            {badge ? (
-              <Badge
-                badgeContent={badge}
-                color="error"
-                sx={{ '& .MuiBadge-badge': { position: 'static', transform: 'none' } }}
+        {navItems.map(({ label, to, icon: Icon, badgeKey }) => {
+          const badge = badgeKey ? badges[badgeKey] : 0;
+          return (
+            <ListItemButton
+              key={to}
+              component={NavLink}
+              to={to}
+              end={to === '/'}
+              sx={{
+                borderRadius: '12px',
+                py: 1.1,
+                px: 1.75,
+                '&.active': {
+                  bgcolor: 'primary.light',
+                  color: 'success.main',
+                  fontWeight: 600,
+                },
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: 36, color: 'inherit' }}>
+                <Icon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText
+                primary={label}
+                primaryTypographyProps={{ fontSize: 14, fontWeight: 'inherit' }}
               />
-            ) : null}
-          </ListItemButton>
-        ))}
+              {badge > 0 ? (
+                <Badge
+                  badgeContent={badge}
+                  color="error"
+                  sx={{ '& .MuiBadge-badge': { position: 'static', transform: 'none' } }}
+                />
+              ) : null}
+            </ListItemButton>
+          );
+        })}
       </List>
 
       <Box sx={{ flex: 1 }} />
