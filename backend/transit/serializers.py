@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from .models import (
@@ -34,11 +35,37 @@ class TiersSerializer(serializers.ModelSerializer):
 
 
 class CompteUtilisateurSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(source="user.username", read_only=True)
+    username = serializers.CharField(source="user.username")
+    password = serializers.CharField(
+        write_only=True, required=False, style={"input_type": "password"}
+    )
 
     class Meta:
         model = CompteUtilisateur
-        fields = ["id", "user", "username", "role"]
+        fields = ["id", "user", "username", "password", "role"]
+        read_only_fields = ["user"]
+
+    def create(self, validated_data):
+        User = get_user_model()
+        username = validated_data.pop("user")["username"]
+        password = validated_data.pop("password", None)
+        if not password:
+            raise serializers.ValidationError(
+                {"password": "Un mot de passe est requis à la création."}
+            )
+        if User.objects.filter(username=username).exists():
+            raise serializers.ValidationError(
+                {"username": "Ce nom d'utilisateur existe déjà."}
+            )
+        django_user = User.objects.create_user(username=username, password=password)
+        return CompteUtilisateur.objects.create(user=django_user, **validated_data)
+
+    def update(self, instance, validated_data):
+        # On ne renomme pas l'utilisateur ni ne change son mot de passe
+        # depuis cet écran — uniquement le rôle.
+        validated_data.pop("user", None)
+        validated_data.pop("password", None)
+        return super().update(instance, validated_data)
 
 
 class MarchandiseSerializer(serializers.ModelSerializer):
