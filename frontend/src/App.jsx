@@ -4,6 +4,7 @@ import DashboardPage from './pages/DashboardPage';
 import ContratsPage from './pages/ContratsPage';
 import ReceptionPage from './pages/ReceptionPage';
 import ExpeditionsPage from './pages/ExpeditionsPage';
+import StockPage from './pages/StockPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 import AppLayout from './components/layout/AppLayout';
 import ProtectedRoute from './routes/ProtectedRoute';
@@ -24,7 +25,7 @@ export default function App() {
         <Route path="contrats" element={<ContratsPage />} />
         <Route path="reception" element={<ReceptionPage />} />
         <Route path="expeditions" element={<ExpeditionsPage />} />
-        <Route path="stock" element={<PlaceholderPage title="Stock" />} />
+        <Route path="stock" element={<StockPage />} />
         <Route path="tiers" element={<PlaceholderPage title="Tiers" />} />
         <Route
           path="comptes-utilisateurs"
