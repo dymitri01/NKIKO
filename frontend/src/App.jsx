@@ -8,7 +8,7 @@ import StockPage from './pages/StockPage';
 import TiersPage from './pages/TiersPage';
 import ComptesUtilisateursPage from './pages/ComptesUtilisateursPage';
 import NotificationsPage from './pages/NotificationsPage';
-import PlaceholderPage from './pages/PlaceholderPage';
+import RapportsPage from './pages/RapportsPage';
 import AppLayout from './components/layout/AppLayout';
 import ProtectedRoute from './routes/ProtectedRoute';
 
@@ -32,7 +32,7 @@ export default function App() {
         <Route path="tiers" element={<TiersPage />} />
         <Route path="comptes-utilisateurs" element={<ComptesUtilisateursPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="rapports" element={<PlaceholderPage title="Rapports" />} />
+        <Route path="rapports" element={<RapportsPage />} />
       </Route>
     </Routes>
   );
