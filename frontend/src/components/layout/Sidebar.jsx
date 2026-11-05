@@ -25,7 +25,12 @@ const NAV_ITEMS = [
   { label: 'Expéditions', to: '/expeditions', icon: Inventory2OutlinedIcon },
   { label: 'Stock', to: '/stock', icon: WarehouseOutlinedIcon },
   { label: 'Tiers', to: '/tiers', icon: GroupsOutlinedIcon },
-  { label: 'Comptes utilisateurs', to: '/comptes-utilisateurs', icon: AccountCircleOutlinedIcon },
+  {
+    label: 'Comptes utilisateurs',
+    to: '/comptes-utilisateurs',
+    icon: AccountCircleOutlinedIcon,
+    rolesVisible: ['ADMINISTRATEUR'],
+  },
   { label: 'Notifications', to: '/notifications', icon: NotificationsOutlinedIcon, badge: 3 },
   { label: 'Rapports', to: '/rapports', icon: BarChartOutlinedIcon },
 ];
@@ -34,6 +39,9 @@ export default function Sidebar() {
   const { user, logout } = useAuth();
 
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : '??';
+  const navItems = NAV_ITEMS.filter(
+    (item) => !item.rolesVisible || user?.is_superuser || item.rolesVisible.includes(user?.role)
+  );
 
   return (
     <Box
@@ -74,7 +82,7 @@ export default function Sidebar() {
       </Box>
 
       <List sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-        {NAV_ITEMS.map(({ label, to, icon: Icon, badge }) => (
+        {navItems.map(({ label, to, icon: Icon, badge }) => (
           <ListItemButton
             key={to}
             component={NavLink}

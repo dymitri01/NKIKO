@@ -6,6 +6,7 @@ import ReceptionPage from './pages/ReceptionPage';
 import ExpeditionsPage from './pages/ExpeditionsPage';
 import StockPage from './pages/StockPage';
 import TiersPage from './pages/TiersPage';
+import ComptesUtilisateursPage from './pages/ComptesUtilisateursPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 import AppLayout from './components/layout/AppLayout';
 import ProtectedRoute from './routes/ProtectedRoute';
@@ -28,10 +29,7 @@ export default function App() {
         <Route path="expeditions" element={<ExpeditionsPage />} />
         <Route path="stock" element={<StockPage />} />
         <Route path="tiers" element={<TiersPage />} />
-        <Route
-          path="comptes-utilisateurs"
-          element={<PlaceholderPage title="Comptes utilisateurs" />}
-        />
+        <Route path="comptes-utilisateurs" element={<ComptesUtilisateursPage />} />
         <Route path="notifications" element={<PlaceholderPage title="Notifications" />} />
         <Route path="rapports" element={<PlaceholderPage title="Rapports" />} />
       </Route>
